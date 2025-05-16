@@ -10,11 +10,13 @@ from ipv8.types import Peer
 from ipv8_service import IPv8
 from ipv8.keyvault.crypto import default_eccrypto, ECCrypto
 from cryptography.exceptions import InvalidSignature
+from ipv8.lazy_community import lazy_wrapper
 
 
 from models.transaction import Transaction
 from models.blockchain import Blockchain
 from models.vote import Vote
+from models.block import Block
 
 
 """
@@ -176,21 +178,69 @@ class BlockchainCommunity(Community, PeerObserver):
             print(f"[{self.node_id}] Block size reached, proposing block...")
             self.propose_block()
 
+    def broadcast_block(self, block: Block):
+        for peer in self.get_peers():
+            if peer != self.my_peer:
+                self.ez_send(peer, block)
+        print(f"[{self.node_id}] Block broadcasted: {block.hash.hex()[:8]}")
+
+
     def propose_block(self):
         if self.role != "validator" or not self.is_my_turn():
             return
         if self.current_proposed_block is not None:
             return
 
-        proposed_block = self.blockchain.propose_block()
-        if proposed_block:
-            self.current_proposed_block = proposed_block
-            print(f"[{self.node_id}] Proposing Block {proposed_block.hash[:8]}")
-            self.create_and_broadcast_vote(bytes.fromhex(proposed_block.hash), 'accept')
+        block = self.blockchain.propose_block(private_key=self.my_key)
+        print(f"[{self.node_id}] Proposed Block: {block.hash.hex()[:8]}")
+        if block:
+            self.current_proposed_block = block
+            print(f"[{self.node_id}] Proposing Block {block.hash[:8]}")
+            self.broadcast_block(block)  # Broadcast block แทน vote ก่อน
+            # Proposer ก็ vote ตัวเองด้วย
+            vote = self.create_vote(block.hash, 'accept')
+            self.broadcast(vote)
 
+    def broadcast_finalized_block(self, block: Block):
+        for peer in self.get_peers():
+            if peer != self.my_peer:
+                self.ez_send(peer, block)
+        print(f"[{self.node_id}] Finalized block broadcasted: {block.hash.hex()[:8]}")
+
+
+
+    
+    @lazy_wrapper(Block)  # สมมติ Block class อยู่ในโมดูลของคุณ
+    def on_block_received(self, peer: Peer, block: Block):
+        block_hash_hex = block.hash.hex()
+        if block_hash_hex in self.seen_message_hashes:
+            return  # บล็อกซ้ำ
+
+        self.seen_message_hashes.add(block_hash_hex)
+
+        # ตรวจสอบ signature บล็อก
+        if not verify_signature(block.signature, block.public_key, block.get_bytes()):
+            print(f"[{self.node_id}] Invalid block signature from {peer.mid.hex()[:6]}")
+            return
+
+        # ตรวจสอบความถูกต้องของบล็อก (เช่น tx ถูกต้อง, เชื่อมโยงบล็อกก่อนหน้า)
+        if not self.blockchain.validate_block(block):
+            print(f"[{self.node_id}] Invalid block content from {peer.mid.hex()[:6]}")
+            return
+
+        # เก็บบล็อกชั่วคราว (ถ้ามี)
+        self.blockchain.store_proposed_block(block)
+
+        # สร้าง vote accept และเซ็น
+        vote = self.create_vote(block.hash, 'accept')
+        self.broadcast(vote)
+        print(f"[{self.node_id}] Vote sent for block {block_hash_hex[:8]}")
+    
     @lazy_wrapper(Vote)
     def on_vote_received(self, peer: Peer, vote: Vote):
         block_hash_str = vote.block_hash.hex()
+        print(f"[{self.node_id}] Received vote from {vote.voter_mid.hex()[:6]} on block {block_hash_str[:8]} with decision {vote.vote_decision.decode()}")
+
         if block_hash_str not in self.vote_collections:
             self.vote_collections[block_hash_str] = []
 
@@ -205,16 +255,23 @@ class BlockchainCommunity(Community, PeerObserver):
         if vote.voter_mid not in [v.voter_mid for v in self.vote_collections[block_hash_str]]:
             self.vote_collections[block_hash_str].append(vote)
 
-        if sum(1 for v in self.vote_collections[block_hash_str] if v.vote_decision == b'accept') >= 3:
+        accept_votes = sum(1 for v in self.vote_collections[block_hash_str] if v.vote_decision == b'accept')
+        print(f"[{self.node_id}] Total accept votes for block {block_hash_str[:8]}: {accept_votes}")
+
+        if accept_votes >= 3:
+            print(f"[{self.node_id}] Vote threshold reached for block {block_hash_str[:8]}")
             self.finalize_block(block_hash_str)
 
     def finalize_block(self, block_hash_hex: str):
         block = self.blockchain.get_proposed_block(block_hash_hex)
         if block:
-            self.blockchain.finalize_block(block_hash_hex, validator=self.my_peer.mid.hex())
-            self.current_proposed_block = None
-            print(f"[{self.node_id}] Block {block_hash_hex[:8]} finalized!")
-            self.broadcast(block)
+            success = self.blockchain.finalize_block(block_hash_hex, validator=self.my_peer.mid.hex())
+            if success:
+                self.current_proposed_block = None
+                print(f"[{self.node_id}] Block {block_hash_hex[:8]} finalized and added to chain!")
+                self.broadcast_finalized_block(block)
+            else:
+                print(f"[{self.node_id}] Failed to finalize block {block_hash_hex[:8]}")
 
     def create_and_broadcast_transaction(self, recipient_id, issuer_id, cert_hash, db_id):
         timestamp = time()
@@ -253,6 +310,22 @@ class BlockchainCommunity(Community, PeerObserver):
 
         self.broadcast(vote)
         print(f"[{self.node_id}] Vote broadcasted: {decision} on block {block_hash.hex()[:8]}")
+
+    def create_vote(self, block_hash: bytes, decision: str) -> Vote:
+        decision_bytes = decision.encode()
+        timestamp = time()
+        msg = block_hash + self.my_peer.mid + decision_bytes + str(timestamp).encode()
+        signature = default_eccrypto.create_signature(self.my_key, msg)
+
+        vote = Vote(
+            block_hash=block_hash,
+            voter_mid=self.my_peer.mid,
+            vote_decision=decision_bytes,
+            timestamp=timestamp,
+            signature=signature,
+            public_key=default_eccrypto.key_to_bin(self.my_key.pub())
+        )
+        return vote
 
 
 def start_node(node_id, developer_mode, web_port=None):

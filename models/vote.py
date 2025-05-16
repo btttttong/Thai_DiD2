@@ -4,6 +4,7 @@ from ipv8.messaging.serialization import default_serializer
 
 @dataclass
 class Vote(DataClassPayload[2]):
+    msg_id = 2
     block_hash: bytes
     voter_mid: bytes
     vote_decision: bytes  # e.g., b"accept" or b"reject"

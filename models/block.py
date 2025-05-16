@@ -4,11 +4,15 @@ import hashlib
 import json
 
 class Block:
-    def __init__(self, index, previous_hash, transactions, timestamp):
+    msg_id = 3
+
+    def __init__(self, index, previous_hash, transactions, timestamp, signature=None, public_key=None):
         self.index = index
         self.previous_hash = previous_hash
         self.transactions = transactions
         self.timestamp = timestamp
+        self.signature = signature  # bytes
+        self.public_key = public_key  # bytes
         self.hash = self.calculate_hash()
 
     def calculate_hash(self):
@@ -24,3 +28,11 @@ class Block:
             'timestamp': self.timestamp,
             'hash': self.hash,
         }
+    
+    def get_bytes(self):
+        block_dict = self.to_dict()
+        # ลบ signature และ public_key ออกจากข้อมูลที่จะเซ็น
+        block_dict.pop('signature', None)
+        block_dict.pop('public_key', None)
+        block_json = json.dumps(block_dict, sort_keys=True)
+        return block_json.encode('utf-8')
