@@ -1,5 +1,34 @@
-venv/
-key_*.pem
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-node_config.json
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+
+# macOS junk
+.DS_Store
+
+# Key files
+*.pem
+*.key
+
+# Logs and local settings
+*.log
+*.sqlite
+*.db
+
+# Secrets
+.env
+*.env
+
+# IDEs
+.vscode/
+.idea/
+
+# Cache
+.cache/
+
+#postgres
+psycopg2/
