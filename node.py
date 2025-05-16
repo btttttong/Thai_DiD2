@@ -90,7 +90,8 @@ class BlockchainCommunity(Community, PeerObserver):
         self.seen_message_hashes = set()
         self.my_key = default_eccrypto.key_from_private_bin(self.my_peer.key.key_to_bin())
         self.authorized_validator = self.my_peer.mid
-        self.blockchain = Blockchain(max_block_size=10, validators=['Validator1' if self.sybill_failsafe == False else self.authorized_validator])
+        # self.blockchain = Blockchain(max_block_size=10, validators=['Validator1' if self.sybill_failsafe == False else self.authorized_validator])
+        self.blockchain = Blockchain(max_block_size=10, validators=[self.my_peer.mid])
         self.sybil_attempts = []
         self.message_replay_violators = []
         self.hostile_byzantine_validators = []
@@ -351,12 +352,13 @@ class BlockchainCommunity(Community, PeerObserver):
         self.broadcast(vote)
 
     def finalize_block(self, block_hash_hex: str):
-        self.broadcast(block)
+        
         block = self.blockchain.get_proposed_block(block_hash_hex)
         if block:
             self.blockchain.finalize_block(block_hash_hex, validator='Validator1')
             self.current_proposed_block = None 
             print(f"[{self.node_id}] Block {block_hash_hex[:8]} finalized!")
+            self.broadcast(block)
 
             if len(self.blockchain.pending_transactions) >= self.blockchain.max_block_size:
                 self.propose_block()
