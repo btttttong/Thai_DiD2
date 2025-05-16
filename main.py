@@ -1,8 +1,7 @@
 from multiprocessing import Process
 import os, asyncio
-from single_node import start_node
+from node import start_node
 from threading import Thread
-from run_main_web import start_main_web
 
 NUM_PEERS = 4
 
