@@ -10,6 +10,10 @@ class Blockchain:
         self.proposed_blocks = {}  # Store proposed blocks by block_hash
         self.create_genesis_block()
 
+    @property
+    def height(self):
+        return len(self.chain) if hasattr(self, "chain") else 0
+
     def create_genesis_block(self):
         genesis_block = Block(0, "0", [], time())
         self.chain.append(genesis_block)

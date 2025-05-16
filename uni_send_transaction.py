@@ -4,6 +4,8 @@ import hashlib
 import string
 import requests
 from time import time
+from ipv8.keyvault.crypto import default_eccrypto
+from ipv8.keyvault.keys import default_curve
 
 API_URL = "http://localhost:8080/api/send_transaction"
 
@@ -17,7 +19,7 @@ def generate_transaction():
     cert_content = f"{recipient_id}:{issuer_id}:{db_id}:{time()}"
     cert_hash = hashlib.sha256(cert_content.encode()).hexdigest()
     #TODO: sign tx
-    
+
     return {
         "recipient_id": recipient_id,
         "issuer_id": issuer_id,
