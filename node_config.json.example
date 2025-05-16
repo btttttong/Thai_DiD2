@@ -1,0 +1,14 @@
+{
+    "your_node_id": {
+        "role": "sender"
+    },
+    "your_node_id": {
+        "role": "validator"
+    },
+    "your_node_id": {
+        "role": "validator"
+    },
+    "your_node_id": {
+        "role": "validator"
+    }
+}

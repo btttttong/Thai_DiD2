@@ -134,13 +134,13 @@ class BlockchainCommunity(Community, PeerObserver):
 
         async def send_transaction():
             await asyncio.sleep(5)
-            if self.role == "sender":
-                self.create_and_broadcast_transaction(
-                    recipient_id="stu123",
-                    issuer_id="uniABC",
-                    cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
-                    db_id="db001"
-                )
+    
+            self.create_and_broadcast_transaction(
+                recipient_id="stu123",
+                issuer_id="uniABC",
+                cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
+                db_id="db001"
+            )
 
         if self.role == "sender":
             # send dummy transaction since ipv8 is somehow not recoginze the first tx
@@ -151,7 +151,9 @@ class BlockchainCommunity(Community, PeerObserver):
                 cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
                 db_id="db001"
             )
+            print(f"[{self.node_id}] Dummy transaction broadcasted: {hashlib.sha256(b'stu123:uniABC:db001:' + str(time()).encode()).hexdigest()[:8]}")
 
+            print(f"[{self.node_id}] Starting transaction sender...")
             self.register_task("send_transaction", send_transaction, interval=5, delay=2)
 
     @lazy_wrapper(Transaction)
@@ -167,7 +169,7 @@ class BlockchainCommunity(Community, PeerObserver):
             return
 
         self.blockchain.add_pending_transaction(tx)
-        print(f"[{self.node_id}] TX received from {tx.sender_mid.hex()[:6]} to {tx.receiver_mid.hex()[:6]}")
+        print(f"[{self.node_id}] TX received from {tx.sender_mid.hex()[:6]} to {tx.receiver_mid.hex()[:6]} pending transactions: {len(self.blockchain.pending_transactions)}")
         self.broadcast(tx)
 
         if len(self.blockchain.pending_transactions) >= self.blockchain.max_block_size:
@@ -209,7 +211,7 @@ class BlockchainCommunity(Community, PeerObserver):
     def finalize_block(self, block_hash_hex: str):
         block = self.blockchain.get_proposed_block(block_hash_hex)
         if block:
-            self.blockchain.finalize_block(block_hash_hex, validator=self.my_peer.mid)
+            self.blockchain.finalize_block(block_hash_hex, validator=self.my_peer.mid.hex())
             self.current_proposed_block = None
             print(f"[{self.node_id}] Block {block_hash_hex[:8]} finalized!")
             self.broadcast(block)
