@@ -11,11 +11,42 @@ from ipv8_service import IPv8
 from ipv8.keyvault.crypto import default_eccrypto, ECCrypto
 from cryptography.exceptions import InvalidSignature
 
-from webapp.app import NodeWeb
 
 from models.transaction import Transaction
 from models.blockchain import Blockchain
 from models.vote import Vote
+
+
+"""
+uni: create tx
+uni: sign tx with private key
+uni: send tx to network
+
+nw: receive tx (on_transaction_received)
+nw: verify tx signature (on_transaction_received)
+nw: broadcast tx to network (gossip tx)
+
+validator: receive tx and store in mempool (pending)
+
+proposer: check if it's their turn (round-robin or rule)
+proposer: collect txs from mempool
+proposer: create block
+proposer: sign block with private key
+proposer: broadcast block to validator set
+
+validator: receive proposed block
+validator: verify block signature and contents
+validator: create vote
+validator: sign vote with private key
+validator: sent vote to proposer
+proposer: collect votes
+proposer: if vote threshold reached → commit block
+proposer: broadcast committed block
+
+user: receive cert or confirmation (off-chain or on-chain response)
+"""
+
+
 
 def verify_signature(signature: bytes, public_key: bytes, message: bytes) -> bool:
     try:
@@ -70,6 +101,12 @@ class BlockchainCommunity(Community, PeerObserver):
         self.node_id = None
         self.db = None
         self.current_proposed_block = None
+
+    def is_my_turn(self):
+        validators = sorted(self.blockchain.validators)
+        block_height = self.blockchain.height  # สมมุติว่า blockchain มีตัวนี้
+        current_index = block_height % len(validators)
+        return self.my_peer.mid == validators[current_index]
 
     def broadcast(self, payload, exclude_peer=None):
         for peer in self.get_peers():
@@ -134,6 +171,9 @@ class BlockchainCommunity(Community, PeerObserver):
             print("Voting decision has been made")
 
     def propose_block(self):
+        if not self.is_my_turn():
+            print(f"[{self.node_id}] Not my turn to propose block.")
+            return
         if self.current_proposed_block is not None:
             print(f"[{self.node_id}] A block is already proposed: {self.current_proposed_block.hash[:8]}")
             return
@@ -311,6 +351,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.broadcast(vote)
 
     def finalize_block(self, block_hash_hex: str):
+        self.broadcast(block)
         block = self.blockchain.get_proposed_block(block_hash_hex)
         if block:
             self.blockchain.finalize_block(block_hash_hex, validator='Validator1')
@@ -357,18 +398,18 @@ def start_node(node_id, developer_mode, web_port=None):
         try:
             await ipv8.start()
             
-            if web_port is not None:
-                community = ipv8.get_overlay(BlockchainCommunity)
-                community.node_id = node_id
-                #community.db = CertDBHandler(node_id)
-                community.web = NodeWeb(community, port=web_port)
+            # if web_port is not None:
+            #     community = ipv8.get_overlay(BlockchainCommunity)
+            #     community.node_id = node_id
+            #     #community.db = CertDBHandler(node_id)
+            #     community.web = NodeWeb(community, port=web_port)
                 
-                # Run Flask in a separate thread properly
-                flask_thread = Thread(
-                    target=community.web.start,
-                    daemon=True  # Daemonize so it exits with main thread
-                )
-                flask_thread.start()
+            #     # Run Flask in a separate thread properly
+            #     flask_thread = Thread(
+            #         target=community.web.start,
+            #         daemon=True  # Daemonize so it exits with main thread
+            #     )
+            #     flask_thread.start()
             
             # Keep the node running
             while True:
