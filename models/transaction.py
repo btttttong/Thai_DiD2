@@ -1,14 +1,14 @@
+from ipv8.messaging.payload import Payload
 from ipv8.keyvault.crypto import default_eccrypto
 from cryptography.exceptions import InvalidSignature
-from ipv8.messaging.payload import Payload
 from ipv8.messaging.serialization import default_serializer
-import time
 import json
 
 class Transaction(Payload):
     msg_id = 1
 
-    def __init__(self, sender_mid=b"", receiver_mid=b"", cert_hash=b"", timestamp="", signature=b"", public_key=b"", db_id=""):
+    def __init__(self, sender_mid=b"", receiver_mid="", cert_hash=b"", timestamp=0.0,
+                 signature=b"", public_key=b"", db_id=""):
         super().__init__()
         self.sender_mid = sender_mid
         self.receiver_mid = receiver_mid
@@ -21,7 +21,7 @@ class Transaction(Payload):
     def to_dict(self):
         return {
             "sender_mid": self.sender_mid.hex(),
-            "receiver_mid": self.receiver_mid.hex(),
+            "receiver_mid": self.receiver_mid,
             "cert_hash": self.cert_hash.hex(),
             "timestamp": self.timestamp,
             "signature": self.signature.hex() if self.signature else None,
@@ -52,35 +52,35 @@ class Transaction(Payload):
 
     def to_pack_list(self):
         return [
-            self.sender_mid,
-            self.receiver_mid,
-            self.cert_hash,
-            self.timestamp.encode("utf-8"),
-            self.signature,
-            self.public_key,
-            self.db_id.encode("utf-8"),
+            (default_serializer.pack_bytes, self.sender_mid),
+            (default_serializer.pack_bytes, self.receiver_mid.encode("utf-8")),
+            (default_serializer.pack_bytes, self.cert_hash),
+            (default_serializer.double, self.timestamp),
+            (default_serializer.pack_bytes, self.signature),
+            (default_serializer.pack_bytes, self.public_key),
+            (default_serializer.pack_bytes, self.db_id.encode("utf-8")),
         ]
-
-    @classmethod
-    def from_unpack_list(cls, lst):
-        return cls(
-            sender_mid=lst[0],
-            receiver_mid=lst[1],
-            cert_hash=lst[2],
-            timestamp=lst[3].decode("utf-8"),
-            signature=lst[4],
-            public_key=lst[5],
-            db_id=lst[6].decode("utf-8"),
-        )
 
     @classmethod
     def get_format(cls):
         return [
-            default_serializer.get_serializer(bytes),
-            default_serializer.get_serializer(bytes),
-            default_serializer.get_serializer(bytes),
-            default_serializer.get_serializer(bytes),  # timestamp (str)
-            default_serializer.get_serializer(bytes),
-            default_serializer.get_serializer(bytes),
-            default_serializer.get_serializer(bytes),  # db_id (str)
+            default_serializer.pack_bytes,
+            default_serializer.pack_bytes,
+            default_serializer.pack_bytes,
+            default_serializer.double,
+            default_serializer.pack_bytes,
+            default_serializer.pack_bytes,
+            default_serializer.pack_bytes,
         ]
+
+    @classmethod
+    def from_unpack_list(cls, *pack):
+        return cls(
+            sender_mid=pack[0],
+            receiver_mid=pack[1].decode("utf-8"),
+            cert_hash=pack[2],
+            timestamp=pack[3],
+            signature=pack[4],
+            public_key=pack[5],
+            db_id=pack[6].decode("utf-8"),
+        )

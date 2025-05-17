@@ -1,6 +1,7 @@
 import asyncio
 from threading import Thread
 from node import start_node
+from models.transaction import Transaction
 import time
 
 communities = []
