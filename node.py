@@ -19,8 +19,6 @@ from models.block import Block
 blockchain_community = None  # globally accessible
 from models.blockpayload import BlockPayload
 
-from web_controller import NodeWeb
-
 
 def verify_signature(signature: bytes, public_key: bytes, message: bytes) -> bool:
     try:

@@ -1,24 +1,19 @@
-
-from multiprocessing import Process
 import asyncio
-import os
-import time
+from threading import Thread
+from node import start_node
 
-def run_peer(node_id):
-    import asyncio
-    import os
-    os.environ["PORT_OFFSET"] = str(node_id)
-    from node import start_node
+blockchain_community = None
 
-    async def main():
-        await start_node(node_id=node_id, developer_mode=True)
-        while True:
-            await asyncio.sleep(3600)
+def boot_node():
+    global blockchain_community
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    blockchain_community = loop.run_until_complete(start_node(node_id=0, developer_mode=True))
+    loop.run_forever()
 
-    asyncio.run(main())
+# Optional: expose blockchain_community to be imported
+__all__ = ["blockchain_community"]
 
 if __name__ == "__main__":
-    for i in range(4):
-        Process(target=run_peer, args=(i,)).start()
-    while True:
-        time.sleep(1)
+    # Start node in background thread
+    Thread(target=boot_node, daemon=True).start()
