@@ -1,26 +1,38 @@
 from ipv8.keyvault.crypto import default_eccrypto
 from cryptography.exceptions import InvalidSignature
 import time
+from dataclasses import dataclass
+from ipv8.messaging.payload_dataclass import DataClassPayload
+from ipv8.messaging.serialization import default_serializer
 
-class Transaction:
-    msg_id = 1
-    def __init__(self, sender_mid, receiver_mid, cert_hash, timestamp=None,
-                 signature=None, public_key=None):
-        self.sender_mid = sender_mid
-        self.receiver_mid = receiver_mid
-        self.cert_hash = cert_hash
-        self.timestamp = timestamp or int(time.time())
-        self.signature = signature
-        self.public_key = public_key
+@dataclass
+class Transaction(DataClassPayload[1]):
+    sender_mid: bytes
+    receiver_mid: bytes
+    cert_hash: bytes
+    timestamp: float
+    signature: bytes
+    public_key: bytes
 
+    @classmethod
+    def serializer(cls):
+        return default_serializer(cls, [
+            (bytes, "sender_mid"),
+            (bytes, "receiver_mid"),
+            (bytes, "cert_hash"),
+            (float, "timestamp"),
+            (bytes, "signature"),
+            (bytes, "public_key"),
+        ])
+    
     def to_dict(self):
         return {
-            "sender_mid": self.sender_mid.hex(),
-            "receiver_mid": self.receiver_mid.hex(),
-            "cert_hash": self.cert_hash.hex(),
-            "timestamp": self.timestamp,
-            "signature": self.signature.hex() if self.signature else None,
-            "public_key": self.public_key.hex() if self.public_key else None,
+            'sender_mid': self.sender_mid.hex(),  #convert bytes to hex string
+            'receiver_mid': self.receiver_mid.hex(),
+            'cert_hash': self.cert_hash.hex(),
+            'timestamp': self.timestamp,
+            'signature': self.signature.hex(),
+            'public_key': self.public_key.hex(),
         }
 
     def get_bytes(self):
