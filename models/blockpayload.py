@@ -6,7 +6,7 @@ from ipv8.messaging.payload_dataclass import DataClassPayload
 class BlockPayload(DataClassPayload[4]):
     index: int
     previous_hash: bytes
-    transactions: bytes  
-    timestamp: float
+    transactions: bytes
     signature: bytes
     public_key: bytes
+    db_id: bytes

@@ -22,9 +22,8 @@ def receive_transaction():
         recipient_id = str(tx_dict["recipient_id"])
         issuer_id = str(tx_dict["issuer_id"])
         db_id = str(tx_dict["db_id"])
-        timestamp = str(tx_dict["timestamp"])
 
-        message = f"{recipient_id}|{issuer_id}|{db_id}|{timestamp}".encode("utf-8")
+        message = f"{recipient_id}|{issuer_id}|{db_id}".encode("utf-8")
         pk.verify(signature, message)
 
         tx = Transaction(
@@ -32,8 +31,7 @@ def receive_transaction():
             issuer_id=issuer_id,
             db_id=db_id,
             signature=signature,
-            public_key=public_key,
-            timestamp=float(timestamp)
+            public_key=public_key
         )
 
         if blockchain_community:

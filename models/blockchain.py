@@ -31,8 +31,7 @@ class Blockchain:
         txs = self.pending_transactions[:self.max_block_size]
         index = len(self.chain)
         # previous_hash = self.chain[-1].hash if self.chain else None
-        timestamp = int(time.time())
-        block = Block(index, previous_hash, txs, timestamp)
+        block = Block(index, previous_hash, txs)
 
         # เซ็นบล็อก ถ้ามี private_key (key ของ proposer)
         if private_key:

@@ -33,9 +33,9 @@ def block_to_payload(block: Block) -> BlockPayload:
         index=block.index,
         previous_hash=block.previous_hash.encode('utf-8') if isinstance(block.previous_hash, str) else block.previous_hash,
         transactions=tx_bytes,
-        timestamp=block.timestamp,
         signature=block.signature,
-        public_key=block.public_key
+        public_key=block.public_key,
+        db_id=b"default_db_id",
     )
 
 def payload_to_block(payload: BlockPayload) -> Block:
@@ -46,7 +46,6 @@ def payload_to_block(payload: BlockPayload) -> Block:
         index=payload.index,
         previous_hash=payload.previous_hash.decode('utf-8'),
         transactions=tx_list,
-        timestamp=payload.timestamp,
         signature=payload.signature,
         public_key=payload.public_key
     )
@@ -139,6 +138,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.create_and_broadcast_transaction(
             recipient_id="dummy",
             cert_hash=hashlib.sha256(b"dummy:uniABC:db001:" + str(time()).encode()).hexdigest(),
+            db_id="db001"
         )
         print(f"[{self.node_id}] Dummy transaction broadcasted")
 
@@ -147,7 +147,6 @@ class BlockchainCommunity(Community, PeerObserver):
             index=0,
             previous_hash="0",
             transactions=[],  # Empty transactions for dummy
-            timestamp=time(),
             signature=b"dummy_signature",
             public_key=b"dummy_public_key"
         )
@@ -162,6 +161,7 @@ class BlockchainCommunity(Community, PeerObserver):
         self.create_and_broadcast_transaction(
             recipient_id="stu123",
             cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
+            db_id="db001"
         )
         print(f"[{self.node_id}] Regular transaction broadcasted")
 
@@ -170,13 +170,13 @@ class BlockchainCommunity(Community, PeerObserver):
 
     @lazy_wrapper(Transaction)
     def on_transaction_received(self, peer: Peer, tx: Transaction):
-        message_id = hashlib.sha256(tx.cert_hash + str(tx.timestamp).encode()).hexdigest()
+        message_id = hashlib.sha256(tx.cert_hash).hexdigest()
         if message_id in self.seen_message_hashes:
             return
 
         self.seen_message_hashes.add(message_id)
         if not verify_signature(tx.signature, tx.public_key,
-                                tx.sender_mid + tx.receiver_mid + tx.cert_hash + str(tx.timestamp).encode()):
+                                tx.sender_mid + tx.receiver_mid + tx.cert_hash):
             print(f"[{self.node_id}] Invalid TX from {peer.mid.hex()}")
             return
 
@@ -187,6 +187,11 @@ class BlockchainCommunity(Community, PeerObserver):
         if len(self.blockchain.pending_transactions) >= self.blockchain.max_block_size:
             print(f"[{self.node_id}] Block size reached, proposing block...")
             self.propose_block()
+    @lazy_wrapper(Transaction)
+    def on_transaction(self, peer: Peer, payload: Transaction):
+        print(f"📩 Transaction from {payload.sender} to {payload.receiver}: {payload.message}")
+        # ส่งกลับไปหาคนอื่น (gossip)
+        self.ez_send(peer, Transaction(payload.sender, payload.receiver, payload.message))
 
     def propose_block(self):
         if self.role != "validator" or not self.is_my_turn():
@@ -247,7 +252,7 @@ class BlockchainCommunity(Community, PeerObserver):
         if not verify_signature(
             vote.signature,
             vote.public_key,
-            vote.block_hash + vote.voter_mid + vote.vote_decision + str(vote.timestamp).encode()
+            vote.block_hash + vote.voter_mid + vote.vote_decision
         ):
             print(f"[{self.node_id}] Invalid vote signature")
             return
@@ -272,20 +277,19 @@ class BlockchainCommunity(Community, PeerObserver):
                 self.broadcast_finalized_block(block)
 
     def create_and_broadcast_transaction(self, recipient_id, cert_hash, issuer_id = None, db_id = None):
-        timestamp = time()
         cert_hash_bytes = bytes.fromhex(cert_hash)
         sender_mid = self.my_peer.mid
         receiver_mid = b"api_receiver"
-        message = sender_mid + receiver_mid + cert_hash_bytes + str(timestamp).encode()
+        message = sender_mid + receiver_mid + cert_hash_bytes
         signature = default_eccrypto.create_signature(self.my_key, message)
 
         tx = Transaction(
             sender_mid=sender_mid,
             receiver_mid=receiver_mid,
             cert_hash=cert_hash_bytes,
-            timestamp=timestamp,
             signature=signature,
-            public_key=default_eccrypto.key_to_bin(self.my_key.pub())
+            public_key=default_eccrypto.key_to_bin(self.my_key.pub()),
+            db_id=db_id.encode() if isinstance(db_id, str) else db_id
         )
 
         self.broadcast(tx)

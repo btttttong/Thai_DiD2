@@ -12,12 +12,12 @@ API_URL = "http://localhost:8080/api/send_transaction"
 crypto = ECCrypto()
 key = crypto.generate_key("medium")  # หรือโหลด key จากไฟล์ของ uni
 
-def serialize_message_for_signature(recipient_id: str, issuer_id: str, db_id: str, timestamp: int) -> bytes:
+def serialize_message_for_signature(recipient_id: str, issuer_id: str, db_id: str) -> bytes:
     """
     สร้างข้อความที่ใช้สำหรับเซ็นและตรวจสอบลายเซ็น
     รูปแบบ: "recipient_id|issuer_id|db_id|timestamp"
     """
-    message_str = f"{recipient_id}|{issuer_id}|{db_id}|{timestamp}"
+    message_str = f"{recipient_id}|{issuer_id}|{db_id}"
     return message_str.encode('utf-8')
 
 def random_string(length=10):
