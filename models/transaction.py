@@ -6,7 +6,7 @@ class Transaction(Payload):
     msg_id = 1
     format_list = ["raw", "raw", "raw", "raw", "raw", "raw"]
 
-    def __init__(self, sender_mid, receiver_mid, cert_hash, signature, public_key, db_id):
+    def __init__(self, sender_mid, receiver_mid, cert_hash, db_id, signature=None, public_key=None):
         self.sender_mid = sender_mid
         self.receiver_mid = receiver_mid
         self.cert_hash = cert_hash
@@ -38,10 +38,10 @@ class Transaction(Payload):
 
     def get_bytes(self):
         return (
-            self.sender_mid +
-            self.receiver_mid +
-            self.cert_hash +
-            self.db_id
+            str(self.sender_mid) +
+            str(self.receiver_mid) +
+            str(self.cert_hash) +
+            str(self.db_id)
         ).encode('utf-8')
 
     def sign(self, private_key):

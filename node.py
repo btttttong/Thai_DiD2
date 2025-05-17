@@ -128,9 +128,9 @@ class BlockchainCommunity(Community, PeerObserver):
         self.role = self.load_node_role()
         self.validators = self.load_validators()
 
-        if self.role == "sender":
-            self.register_task("dummy_broadcast", self.send_dummy_payloads, interval=9999, delay=5)  # runs once after 5s
-            self.register_task("send_transaction", self.send_transaction_loop, interval=5, delay=10)  # every 5s after 10s
+        # if self.role == "sender":
+        #     self.register_task("dummy_broadcast", self.send_dummy_payloads, interval=9999, delay=5)  # runs once after 5s
+        #     self.register_task("send_transaction", self.send_transaction_loop, interval=5, delay=10)  # every 5s after 10s
 
 
     async def send_dummy_payloads(self):
