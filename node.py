@@ -172,18 +172,40 @@ class BlockchainCommunity(Community, PeerObserver):
         self.add_message_handler(BlockPayload, self.on_block_payload_received)
 
         if self.role == "sender":
-            # send dummy transaction since ipv8 is somehow not recoginze the first tx
-            # this will be raised some error but it will be ignored
-            self.create_and_broadcast_transaction(
-                recipient_id="stu123",
-                issuer_id="uniABC",
-                cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
-                db_id="db001"
-            )
-            print(f"[{self.node_id}] Dummy transaction broadcasted: {hashlib.sha256(b'stu123:uniABC:db001:' + str(time()).encode()).hexdigest()[:8]}")
+            self.register_task("dummy_broadcast", self.send_dummy_payloads, interval=9999, delay=5)  # runs once after 5s
+            self.register_task("send_transaction", self.send_transaction_loop, interval=5, delay=10)  # every 5s after 10s
 
-            print(f"[{self.node_id}] Starting transaction sender...")
-            self.register_task("send_transaction", send_transaction, interval=5, delay=2)
+
+    async def send_dummy_payloads(self):
+        # Dummy TX
+        self.create_and_broadcast_transaction(
+            recipient_id="dummy",
+            cert_hash=hashlib.sha256(b"dummy:uniABC:db001:" + str(time()).encode()).hexdigest(),
+        )
+        print(f"[{self.node_id}] Dummy transaction broadcasted")
+
+        # Dummy Block
+        dummy_block = Block(
+            index=0,
+            previous_hash="0",
+            transactions=[],  # Empty transactions for dummy
+            timestamp=time(),
+            signature=b"dummy_signature",
+            public_key=b"dummy_public_key"
+        )
+        print(f"[{self.node_id}] Dummy block broadcasted: {dummy_block.hash[:8]}")
+        self.broadcast_block(dummy_block)
+
+        self.cancel_pending_task("dummy_broadcast")
+        print(f"[{self.node_id}] Dummy broadcast task completed and cancelled.")
+
+
+    async def send_transaction_loop(self):
+        self.create_and_broadcast_transaction(
+            recipient_id="stu123",
+            cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
+        )
+        print(f"[{self.node_id}] Regular transaction broadcasted")
 
     def log_peers(self):
         print(f"[{self.node_id}] Known peers: {len(self.known_peers)} | Connected peers: {len(self.get_peers())}")
