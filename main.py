@@ -1,19 +1,27 @@
 import asyncio
 from threading import Thread
 from node import start_node
+import time
 
-blockchain_community = None
+communities = []
 
-def boot_node():
-    global blockchain_community
+def boot_node(node_id):
+    async def runner():
+        community = await start_node(node_id=node_id, developer_mode=True)
+        communities.append(community)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    blockchain_community = loop.run_until_complete(start_node(node_id=0, developer_mode=True))
+    loop.run_until_complete(runner())
     loop.run_forever()
 
-# Optional: expose blockchain_community to be imported
-__all__ = ["blockchain_community"]
-
 if __name__ == "__main__":
-    # Start node in background thread
-    Thread(target=boot_node, daemon=True).start()
+    print("🟢 Starting 3 nodes...")
+    for i in range(3):
+        Thread(target=boot_node, args=(i,), daemon=True).start()
+
+    try:
+        while True:
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print("🛑 Exiting.")
