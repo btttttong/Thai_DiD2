@@ -1,58 +1,38 @@
 from ipv8.keyvault.crypto import default_eccrypto
 from cryptography.exceptions import InvalidSignature
-import time
-from dataclasses import dataclass
-from ipv8.messaging.payload_dataclass import DataClassPayload
+from ipv8.messaging.payload import Payload
 from ipv8.messaging.serialization import default_serializer
+import time
+import json
 
-@dataclass
-class Transaction(DataClassPayload[1]):
-    sender_mid: bytes
-    receiver_mid: bytes
-    cert_hash: bytes
-    timestamp: float
-    signature: bytes
-    public_key: bytes
+class Transaction(Payload):
+    msg_id = 1
 
-    @classmethod
-    def serializer(cls):
-        return default_serializer(cls, [
-            (bytes, "sender_mid"),
-            (bytes, "receiver_mid"),
-            (bytes, "cert_hash"),
-            (float, "timestamp"),
-            (bytes, "signature"),
-            (bytes, "public_key"),
-        ])
-    
+    def __init__(self, sender_mid=b"", receiver_mid=b"", cert_hash=b"", timestamp="", signature=b"", public_key=b"", db_id=""):
+        super().__init__()
+        self.sender_mid = sender_mid
+        self.receiver_mid = receiver_mid
+        self.cert_hash = cert_hash
+        self.timestamp = timestamp
+        self.signature = signature
+        self.public_key = public_key
+        self.db_id = db_id
+
     def to_dict(self):
         return {
-            'sender_mid': self.sender_mid.hex(),  #convert bytes to hex string
-            'receiver_mid': self.receiver_mid.hex(),
-            'cert_hash': self.cert_hash.hex(),
-            'timestamp': self.timestamp,
-            'signature': self.signature.hex(),
-            'public_key': self.public_key.hex(),
+            "sender_mid": self.sender_mid.hex(),
+            "receiver_mid": self.receiver_mid.hex(),
+            "cert_hash": self.cert_hash.hex(),
+            "timestamp": self.timestamp,
+            "signature": self.signature.hex() if self.signature else None,
+            "public_key": self.public_key.hex() if self.public_key else None,
+            "db_id": self.db_id
         }
 
-    @classmethod
-    def from_dict(cls, d):
-        return cls(
-            sender_mid=bytes.fromhex(d["sender_mid"]),
-            receiver_mid=bytes.fromhex(d["receiver_mid"]),
-            cert_hash=bytes.fromhex(d["cert_hash"]),
-            timestamp=d["timestamp"],
-            signature=bytes.fromhex(d["signature"]) if d["signature"] else None,
-            public_key=bytes.fromhex(d["public_key"]) if d["public_key"] else None
-        )
-
-
     def get_bytes(self):
-        # Prepare bytes for signing/verification (exclude signature & public_key)
         d = self.to_dict()
         d.pop("signature", None)
         d.pop("public_key", None)
-        import json
         return json.dumps(d, sort_keys=True).encode("utf-8")
 
     def sign(self, private_key):
@@ -69,3 +49,38 @@ class Transaction(DataClassPayload[1]):
             return True
         except InvalidSignature:
             return False
+
+    def to_pack_list(self):
+        return [
+            self.sender_mid,
+            self.receiver_mid,
+            self.cert_hash,
+            self.timestamp.encode("utf-8"),
+            self.signature,
+            self.public_key,
+            self.db_id.encode("utf-8"),
+        ]
+
+    @classmethod
+    def from_unpack_list(cls, lst):
+        return cls(
+            sender_mid=lst[0],
+            receiver_mid=lst[1],
+            cert_hash=lst[2],
+            timestamp=lst[3].decode("utf-8"),
+            signature=lst[4],
+            public_key=lst[5],
+            db_id=lst[6].decode("utf-8"),
+        )
+
+    @classmethod
+    def get_format(cls):
+        return [
+            default_serializer.get_serializer(bytes),
+            default_serializer.get_serializer(bytes),
+            default_serializer.get_serializer(bytes),
+            default_serializer.get_serializer(bytes),  # timestamp (str)
+            default_serializer.get_serializer(bytes),
+            default_serializer.get_serializer(bytes),
+            default_serializer.get_serializer(bytes),  # db_id (str)
+        ]

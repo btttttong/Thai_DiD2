@@ -1,24 +1,24 @@
+
 from multiprocessing import Process
-import os, asyncio
-from node import start_node
-from threading import Thread
+import asyncio
+import os
+import time
 
-NUM_PEERS = 4
+def run_peer(node_id):
+    import asyncio
+    import os
+    os.environ["PORT_OFFSET"] = str(node_id)
+    from node import start_node
 
-def run_peer(port_offset):
-    dev_mode = True
-    os.environ["PORT_OFFSET"] = str(port_offset)
-    web_port = 8080 + port_offset
+    async def main():
+        await start_node(node_id=node_id, developer_mode=True)
+        while True:
+            await asyncio.sleep(3600)
 
-    start_node(node_id=port_offset, developer_mode=dev_mode, web_port=web_port)
+    asyncio.run(main())
 
 if __name__ == "__main__":
-    processes = []
-
-    for i in range(NUM_PEERS):
-        p = Process(target=run_peer, args=(i,))
-        p.start()
-        processes.append(p)
-
-    for p in processes:
-        p.join()
+    for i in range(4):
+        Process(target=run_peer, args=(i,)).start()
+    while True:
+        time.sleep(1)

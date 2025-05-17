@@ -10,59 +10,13 @@ from ipv8.types import Peer
 from ipv8_service import IPv8
 from ipv8.keyvault.crypto import default_eccrypto, ECCrypto
 from cryptography.exceptions import InvalidSignature
-from ipv8.lazy_community import lazy_wrapper
-
-
+import asyncio
 from models.transaction import Transaction
 from models.blockchain import Blockchain
 from models.vote import Vote
 from models.block import Block
 
-
-"""
-uni: create tx
-uni: sign tx with private key
-uni: send tx to network
-
-nw: receive tx (on_transaction_received)
-nw: verify tx signature (on_transaction_received)
-nw: broadcast tx to network (gossip tx)
-
-validator: receive tx and store in mempool (pending)
-
-proposer: check if it's their turn (round-robin or rule)
-proposer: collect txs from mempool
-proposer: create block
-proposer: sign block with private key
-proposer: broadcast block to validator set
-
-validator: receive proposed block
-validator: verify block signature and contents
-validator: create vote
-validator: sign vote with private key
-validator: sent vote to proposer
-proposer: collect votes
-proposer: if vote threshold reached → commit block
-proposer: broadcast committed block
-
-user: receive cert or confirmation (off-chain or on-chain response)
-"""
-
-# blockchain_community_poav2.py
-
-import os, json, asyncio, hashlib
-from time import time
-from ipv8.community import Community, CommunitySettings
-from ipv8.configuration import ConfigBuilder, Strategy, WalkerDefinition, default_bootstrap_defs
-from ipv8.lazy_community import lazy_wrapper
-from ipv8.peerdiscovery.network import PeerObserver
-from ipv8.types import Peer
-from ipv8_service import IPv8
-from ipv8.keyvault.crypto import default_eccrypto, ECCrypto
-from cryptography.exceptions import InvalidSignature
-from models.transaction import Transaction
-from models.blockchain import Blockchain
-from models.vote import Vote
+blockchain_community = None  # globally accessible
 from models.blockpayload import BlockPayload
 
 from web_controller import NodeWeb
@@ -153,6 +107,9 @@ class BlockchainCommunity(Community, PeerObserver):
 
     def __init__(self, settings: CommunitySettings):
         super().__init__(settings)
+        global blockchain_community
+        blockchain_community = self
+        self.started_callback = lambda: print("✅ blockchain_community is ready!")
         self.my_key = default_eccrypto.key_from_private_bin(self.my_peer.key.key_to_bin())
         self.known_peers = set()
         self.seen_message_hashes = set()
@@ -208,6 +165,8 @@ class BlockchainCommunity(Community, PeerObserver):
         print(f"[{self.my_peer.mid.hex()}] disconnected from {peer.mid.hex()}")
 
     def started(self):
+        global blockchain_community
+        blockchain_community = self
         self.node_id = self.my_peer.mid.hex()[:6]
         self.network.add_peer_observer(self)
         self.add_message_handler(Transaction, self.on_transaction_received)
@@ -215,41 +174,21 @@ class BlockchainCommunity(Community, PeerObserver):
         self.add_message_handler(BlockPayload, self.on_block_payload_received)
 
         if self.role == "sender":
-            self.register_task("dummy_broadcast", self.send_dummy_payloads, interval=9999, delay=5)  # runs once after 5s
-            self.register_task("send_transaction", self.send_transaction_loop, interval=5, delay=10)  # every 5s after 10s
+            # send dummy transaction since ipv8 is somehow not recoginze the first tx
+            # this will be raised some error but it will be ignored
+            self.create_and_broadcast_transaction(
+                recipient_id="stu123",
+                issuer_id="uniABC",
+                cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
+                db_id="db001"
+            )
+            print(f"[{self.node_id}] Dummy transaction broadcasted: {hashlib.sha256(b'stu123:uniABC:db001:' + str(time()).encode()).hexdigest()[:8]}")
 
+            print(f"[{self.node_id}] Starting transaction sender...")
+            self.register_task("send_transaction", send_transaction, interval=5, delay=2)
 
-    async def send_dummy_payloads(self):
-        # Dummy TX
-        self.create_and_broadcast_transaction(
-            recipient_id="dummy",
-            cert_hash=hashlib.sha256(b"dummy:uniABC:db001:" + str(time()).encode()).hexdigest(),
-        )
-        print(f"[{self.node_id}] Dummy transaction broadcasted")
-
-        # Dummy Block
-        dummy_block = Block(
-            index=0,
-            previous_hash="0",
-            transactions=[],  # Empty transactions for dummy
-            timestamp=time(),
-            signature=b"dummy_signature",
-            public_key=b"dummy_public_key"
-        )
-        print(f"[{self.node_id}] Dummy block broadcasted: {dummy_block.hash[:8]}")
-        self.broadcast_block(dummy_block)
-
-        self.cancel_pending_task("dummy_broadcast")
-        print(f"[{self.node_id}] Dummy broadcast task completed and cancelled.")
-
-
-    async def send_transaction_loop(self):
-        self.create_and_broadcast_transaction(
-            recipient_id="stu123",
-            cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
-        )
-        print(f"[{self.node_id}] Regular transaction broadcasted")
-
+    def log_peers(self):
+        print(f"[{self.node_id}] Known peers: {len(self.known_peers)} | Connected peers: {len(self.get_peers())}")
 
     @lazy_wrapper(Transaction)
     def on_transaction_received(self, peer: Peer, tx: Transaction):
@@ -433,67 +372,56 @@ class BlockchainCommunity(Community, PeerObserver):
         return vote
 
 
-def start_node(node_id, developer_mode, web_port=None):
-    async def boot():
-        builder = ConfigBuilder().clear_keys().clear_overlays()
-        crypto = ECCrypto()
-        key_path = f"key_{node_id}.pem"
-        if not os.path.exists(key_path):
-            key = crypto.generate_key("medium")
-            with open(key_path, "wb") as f:
-                f.write(key.key_to_bin())
-        if developer_mode == True:
-            print(f"Key generated/loaded at {key_path}")
 
-        port_offset = int(os.environ.get("PORT_OFFSET", "0"))
-        port = 8090 + port_offset
-        if developer_mode == True:
-            print(f"Port set at {port}")
 
-        generation_status = "medium"
-        alias_status = "my peer"
-        builder.add_key(alias_status, generation_status, key_path)
-        builder.set_port(port)
-        if developer_mode == True:
-            print(f"Builder set at port {port}, generation status of '{generation_status}' and alias status of '{alias_status}'")
+async def start_node(node_id, developer_mode, web_port=None):
+    from ipv8.configuration import ConfigBuilder, Strategy, WalkerDefinition, default_bootstrap_defs
+    from ipv8.keyvault.crypto import ECCrypto
+    from ipv8_service import IPv8
 
-        builder.add_overlay("BlockchainCommunity", "my peer",
-                          [WalkerDefinition(Strategy.RandomWalk, 10, {'timeout': 3.0})],
-                          default_bootstrap_defs, {}, [('started', )])
+    builder = ConfigBuilder().clear_keys().clear_overlays()
+    crypto = ECCrypto()
+    key_path = f"key_{node_id}.pem"
 
-        ipv8 = IPv8(builder.finalize(), extra_communities={'BlockchainCommunity': BlockchainCommunity})
-        if developer_mode == True:
-            print("IPV8 finalized. Deployment cleared.")
+    if not os.path.exists(key_path):
+        key = crypto.generate_key("medium")
+        with open(key_path, "wb") as f:
+            f.write(key.key_to_bin())
 
-        try:
-            await ipv8.start()
+    if developer_mode:
+        print(f"🔑 Key loaded at {key_path}")
 
-            # community = ipv8.get_overlay(BlockchainCommunity)
+    port = 8090 + node_id
+    if developer_mode:
+        print(f"🌐 Port set at {port}")
 
-            # web = NodeWeb(community, port=5000)  # Change port if needed
-            # flask_thread = Thread(target=web.start, daemon=True)
-            # flask_thread.start()
-            
-            # if web_port is not None:
-            #     community = ipv8.get_overlay(BlockchainCommunity)
-            #     community.node_id = node_id
-            #     #community.db = CertDBHandler(node_id)
-            #     community.web = NodeWeb(community, port=web_port)
-                
-            #     # Run Flask in a separate thread properly
-            #     flask_thread = Thread(
-            #         target=community.web.start,
-            #         daemon=True  # Daemonize so it exits with main thread
-            #     )
-            #     flask_thread.start()
-            
-            # Keep the node running
-            while True:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            print("Shutting down node...")
-        finally:
-            await ipv8.stop()
-                
-    asyncio.run(boot())
+    builder.add_key("my peer", "medium", key_path)
+    builder.set_port(port)
 
+    builder.add_overlay(
+        "BlockchainCommunity",
+        "my peer",
+        walkers=[WalkerDefinition(Strategy.RandomWalk, 3.0, {"timeout": 3})],
+        bootstrappers=default_bootstrap_defs,
+        initialize={"anonymize": False},
+        on_start=[]
+    )
+
+    from node import BlockchainCommunity  # make sure this is at the end to avoid circular import
+    ipv8 = IPv8(builder.finalize(), extra_communities={"BlockchainCommunity": BlockchainCommunity})
+    await ipv8.start()
+
+    if developer_mode:
+        print("✅ IPv8 started")
+
+    # ✅ รอจน blockchain_community ถูกเซต
+    global blockchain_community
+    while blockchain_community is None:
+        await asyncio.sleep(0.1)
+
+    blockchain_community.started()
+    print("✅ blockchain_community is ready!")
+    return blockchain_community
+
+    while True:
+        await asyncio.sleep(1)
