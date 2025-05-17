@@ -63,6 +63,9 @@ from cryptography.exceptions import InvalidSignature
 from models.transaction import Transaction
 from models.blockchain import Blockchain
 from models.vote import Vote
+from models.blockpayload import BlockPayload
+
+from web_controller import NodeWeb
 
 
 def verify_signature(signature: bytes, public_key: bytes, message: bytes) -> bool:
@@ -72,6 +75,78 @@ def verify_signature(signature: bytes, public_key: bytes, message: bytes) -> boo
         return True
     except InvalidSignature:
         return False
+
+# def block_to_payload(block: Block) -> BlockPayload:
+#     if block.previous_hash is None:
+#         raise ValueError("Block missing previous_hash")
+#     if block.transactions is None:
+#         raise ValueError("Block missing transactions")
+#     if block.signature is None:
+#         raise ValueError("Block missing signature")
+#     if block.public_key is None:
+#         raise ValueError("Block missing public_key")
+
+#     tx_jsons = []
+#     for tx in block.transactions:
+#         if tx is None:
+#             raise ValueError("Block contains None transaction")
+#         tx_json = json.dumps(tx.to_dict(), sort_keys=True).encode('utf-8')
+#         tx_jsons.append(tx_json)
+
+#     previous_hash_bytes = (block.previous_hash.encode('utf-8')
+#                            if isinstance(block.previous_hash, str)
+#                            else block.previous_hash)
+
+#     return BlockPayload(
+#         index=block.index,
+#         previous_hash=previous_hash_bytes,
+#         transactions=tx_jsons,
+#         timestamp=block.timestamp,
+#         signature=block.signature,
+#         public_key=block.public_key
+#     )
+
+def block_to_payload(block: Block) -> BlockPayload:
+    tx_jsons = [tx.to_dict() for tx in block.transactions]
+    tx_bytes = json.dumps(tx_jsons).encode('utf-8')  # Serialize as one field
+
+    return BlockPayload(
+        index=block.index,
+        previous_hash=block.previous_hash.encode('utf-8') if isinstance(block.previous_hash, str) else block.previous_hash,
+        transactions=tx_bytes,  # Single JSON-encoded bytes
+        timestamp=block.timestamp,
+        signature=block.signature,
+        public_key=block.public_key
+    )
+
+
+# def payload_to_block(payload: BlockPayload) -> Block:
+#     tx_list = [json.loads(tx_bytes.decode('utf-8')) for tx_bytes in payload.transactions]
+#     # You will have to reconstruct Transaction objects from dicts if needed
+#     # Here we pass empty list for demonstration
+#     return Block(
+#         index=payload.index,
+#         previous_hash=payload.previous_hash.decode('utf-8'),
+#         transactions=[],  # Replace with real deserialization logic if needed
+#         timestamp=payload.timestamp,
+#         signature=payload.signature,
+#         public_key=payload.public_key
+#     )
+
+def payload_to_block(payload: BlockPayload) -> Block:
+    tx_dicts = json.loads(payload.transactions.decode('utf-8'))
+    tx_list = [Transaction.from_dict(d) for d in tx_dicts]
+
+    return Block(
+        index=payload.index,
+        previous_hash=payload.previous_hash.decode('utf-8'),
+        transactions=tx_list,
+        timestamp=payload.timestamp,
+        signature=payload.signature,
+        public_key=payload.public_key
+    )
+
+
 
 class BlockchainCommunity(Community, PeerObserver):
     community_id = b"myblockchain-test-01"
@@ -84,6 +159,10 @@ class BlockchainCommunity(Community, PeerObserver):
         self.vote_collections = {}
         self.node_id = None
         self.current_proposed_block = None
+
+        # self.serializer.add_serializable(Transaction)
+        # self.serializer.add_serializable(Vote)
+        # self.serializer.add_serializable(Block)
 
         # self.serializer.add_serializable(Transaction)
 
@@ -133,30 +212,44 @@ class BlockchainCommunity(Community, PeerObserver):
         self.network.add_peer_observer(self)
         self.add_message_handler(Transaction, self.on_transaction_received)
         self.add_message_handler(Vote, self.on_vote_received)
-
-        async def send_transaction():
-            await asyncio.sleep(5)
-    
-            self.create_and_broadcast_transaction(
-                recipient_id="stu123",
-                issuer_id="uniABC",
-                cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
-                db_id="db001"
-            )
+        self.add_message_handler(BlockPayload, self.on_block_payload_received)
 
         if self.role == "sender":
-            # send dummy transaction since ipv8 is somehow not recoginze the first tx
-            # this will be raised some error but it will be ignored
-            self.create_and_broadcast_transaction(
-                recipient_id="stu123",
-                issuer_id="uniABC",
-                cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
-                db_id="db001"
-            )
-            print(f"[{self.node_id}] Dummy transaction broadcasted: {hashlib.sha256(b'stu123:uniABC:db001:' + str(time()).encode()).hexdigest()[:8]}")
+            self.register_task("dummy_broadcast", self.send_dummy_payloads, interval=9999, delay=5)  # runs once after 5s
+            self.register_task("send_transaction", self.send_transaction_loop, interval=5, delay=10)  # every 5s after 10s
 
-            print(f"[{self.node_id}] Starting transaction sender...")
-            self.register_task("send_transaction", send_transaction, interval=5, delay=2)
+
+    async def send_dummy_payloads(self):
+        # Dummy TX
+        self.create_and_broadcast_transaction(
+            recipient_id="dummy",
+            cert_hash=hashlib.sha256(b"dummy:uniABC:db001:" + str(time()).encode()).hexdigest(),
+        )
+        print(f"[{self.node_id}] Dummy transaction broadcasted")
+
+        # Dummy Block
+        dummy_block = Block(
+            index=0,
+            previous_hash="0",
+            transactions=[],  # Empty transactions for dummy
+            timestamp=time(),
+            signature=b"dummy_signature",
+            public_key=b"dummy_public_key"
+        )
+        print(f"[{self.node_id}] Dummy block broadcasted: {dummy_block.hash[:8]}")
+        self.broadcast_block(dummy_block)
+
+        self.cancel_pending_task("dummy_broadcast")
+        print(f"[{self.node_id}] Dummy broadcast task completed and cancelled.")
+
+
+    async def send_transaction_loop(self):
+        self.create_and_broadcast_transaction(
+            recipient_id="stu123",
+            cert_hash=hashlib.sha256(b"stu123:uniABC:db001:" + str(time()).encode()).hexdigest(),
+        )
+        print(f"[{self.node_id}] Regular transaction broadcasted")
+
 
     @lazy_wrapper(Transaction)
     def on_transaction_received(self, peer: Peer, tx: Transaction):
@@ -179,10 +272,11 @@ class BlockchainCommunity(Community, PeerObserver):
             self.propose_block()
 
     def broadcast_block(self, block: Block):
+        block_payload = block_to_payload(block)
         for peer in self.get_peers():
             if peer != self.my_peer:
-                self.ez_send(peer, block)
-        print(f"[{self.node_id}] Block broadcasted: {block.hash.hex()[:8]}")
+                self.ez_send(peer, block_payload)
+        print(f"[{self.node_id}] Block broadcasted: {block.hash[:8]}")
 
 
     def propose_block(self):
@@ -192,31 +286,39 @@ class BlockchainCommunity(Community, PeerObserver):
             return
 
         block = self.blockchain.propose_block(private_key=self.my_key)
-        print(f"[{self.node_id}] Proposed Block: {block.hash.hex()[:8]}")
+        # print(f"[{self.node_id}] Proposed Block: {block.hash}")
         if block:
             self.current_proposed_block = block
             print(f"[{self.node_id}] Proposing Block {block.hash[:8]}")
             self.broadcast_block(block)  # Broadcast block แทน vote ก่อน
             # Proposer ก็ vote ตัวเองด้วย
-            vote = self.create_vote(block.hash, 'accept')
-            self.broadcast(vote)
+
+            # ignore this for now
+
+            # vote = self.create_vote(block.hash, 'accept')
+            # self.broadcast(vote)
 
     def broadcast_finalized_block(self, block: Block):
+        block_payload = block_to_payload(block)
         for peer in self.get_peers():
             if peer != self.my_peer:
-                self.ez_send(peer, block)
+                self.ez_send(peer, block_payload)
         print(f"[{self.node_id}] Finalized block broadcasted: {block.hash.hex()[:8]}")
 
+    @lazy_wrapper(BlockPayload)
+    def on_block_payload_received(self, peer: Peer, block_payload: BlockPayload):
+        block = payload_to_block(block_payload)
 
+        if block.hash.startswith("dummy"):  # You can choose any unique marker
+            print(f"[{self.node_id}] Received DUMMY block from {peer.mid.hex()[:6]}")
+            return
 
-    
-    @lazy_wrapper(Block)  # สมมติ Block class อยู่ในโมดูลของคุณ
-    def on_block_received(self, peer: Peer, block: Block):
-        block_hash_hex = block.hash.hex()
-        if block_hash_hex in self.seen_message_hashes:
-            return  # บล็อกซ้ำ
+        if block.hash in self.seen_message_hashes:
+            return
 
-        self.seen_message_hashes.add(block_hash_hex)
+        print(f"[{self.node_id}] Received block from {peer.mid.hex()[:6]}: {block.hash[:8]}")
+
+        self.seen_message_hashes.add(block.hash)
 
         # ตรวจสอบ signature บล็อก
         if not verify_signature(block.signature, block.public_key, block.get_bytes()):
@@ -232,9 +334,12 @@ class BlockchainCommunity(Community, PeerObserver):
         self.blockchain.store_proposed_block(block)
 
         # สร้าง vote accept และเซ็น
-        vote = self.create_vote(block.hash, 'accept')
-        self.broadcast(vote)
-        print(f"[{self.node_id}] Vote sent for block {block_hash_hex[:8]}")
+
+        # ignore this for now
+
+        # vote = self.create_vote(block.hash, 'accept')
+        # self.broadcast(vote)
+        # print(f"[{self.node_id}] Vote sent for block {block_hash_hex[:8]}")
     
     @lazy_wrapper(Vote)
     def on_vote_received(self, peer: Peer, vote: Vote):
@@ -273,7 +378,7 @@ class BlockchainCommunity(Community, PeerObserver):
             else:
                 print(f"[{self.node_id}] Failed to finalize block {block_hash_hex[:8]}")
 
-    def create_and_broadcast_transaction(self, recipient_id, issuer_id, cert_hash, db_id):
+    def create_and_broadcast_transaction(self, recipient_id, cert_hash, issuer_id = None, db_id = None):
         timestamp = time()
         cert_hash_bytes = bytes.fromhex(cert_hash)
         sender_mid = self.my_peer.mid
@@ -362,6 +467,12 @@ def start_node(node_id, developer_mode, web_port=None):
 
         try:
             await ipv8.start()
+
+            # community = ipv8.get_overlay(BlockchainCommunity)
+
+            # web = NodeWeb(community, port=5000)  # Change port if needed
+            # flask_thread = Thread(target=web.start, daemon=True)
+            # flask_thread.start()
             
             # if web_port is not None:
             #     community = ipv8.get_overlay(BlockchainCommunity)

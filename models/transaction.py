@@ -35,6 +35,18 @@ class Transaction(DataClassPayload[1]):
             'public_key': self.public_key.hex(),
         }
 
+    @classmethod
+    def from_dict(cls, d):
+        return cls(
+            sender_mid=bytes.fromhex(d["sender_mid"]),
+            receiver_mid=bytes.fromhex(d["receiver_mid"]),
+            cert_hash=bytes.fromhex(d["cert_hash"]),
+            timestamp=d["timestamp"],
+            signature=bytes.fromhex(d["signature"]) if d["signature"] else None,
+            public_key=bytes.fromhex(d["public_key"]) if d["public_key"] else None
+        )
+
+
     def get_bytes(self):
         # Prepare bytes for signing/verification (exclude signature & public_key)
         d = self.to_dict()
