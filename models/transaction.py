@@ -1,7 +1,7 @@
 from ipv8.messaging.payload import Payload
 from ipv8.keyvault.crypto import default_eccrypto
 from cryptography.exceptions import InvalidSignature
-from ipv8.messaging.serialization import default_serializer
+from ipv8.messaging.serialization import default_serializers
 import json
 
 class Transaction(Payload):
@@ -52,25 +52,25 @@ class Transaction(Payload):
 
     def to_pack_list(self):
         return [
-            (default_serializer.pack_bytes, self.sender_mid),
-            (default_serializer.pack_bytes, self.receiver_mid.encode("utf-8")),
-            (default_serializer.pack_bytes, self.cert_hash),
-            (default_serializer.double, self.timestamp),
-            (default_serializer.pack_bytes, self.signature),
-            (default_serializer.pack_bytes, self.public_key),
-            (default_serializer.pack_bytes, self.db_id.encode("utf-8")),
+            (default_serializers.serializable_bytes, self.sender_mid),
+            (default_serializers.serializable_bytes, self.receiver_mid.encode("utf-8")),
+            (default_serializers.serializable_bytes, self.cert_hash),
+            (default_serializers.double, self.timestamp),
+            (default_serializers.serializable_bytes, self.signature),
+            (default_serializers.serializable_bytes, self.public_key),
+            (default_serializers.serializable_bytes, self.db_id.encode("utf-8")),
         ]
 
     @classmethod
     def get_format(cls):
         return [
-            default_serializer.pack_bytes,
-            default_serializer.pack_bytes,
-            default_serializer.pack_bytes,
-            default_serializer.double,
-            default_serializer.pack_bytes,
-            default_serializer.pack_bytes,
-            default_serializer.pack_bytes,
+            default_serializers.serializable_bytes,
+            default_serializers.serializable_bytes,
+            default_serializers.serializable_bytes,
+            default_serializers.double,
+            default_serializers.serializable_bytes,
+            default_serializers.serializable_bytes,
+            default_serializers.serializable_bytes
         ]
 
     @classmethod
