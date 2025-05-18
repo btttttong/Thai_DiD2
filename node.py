@@ -3,13 +3,12 @@ from random import choice
 from time import time
 from ipv8.community import Community, CommunitySettings
 from ipv8.configuration import ConfigBuilder, Strategy, WalkerDefinition, default_bootstrap_defs
-from ipv8.lazy_community import lazy_wrapper
 from ipv8.peerdiscovery.network import PeerObserver
 from ipv8.types import Peer
 from ipv8_service import IPv8
 from ipv8.keyvault.crypto import default_eccrypto, ECCrypto
 from cryptography.exceptions import InvalidSignature
-
+from ipv8.lazy_community import lazy_wrapper
 from models.transaction import Transaction
 from models.blockchain import Blockchain
 from models.vote import Vote
@@ -55,6 +54,7 @@ class BlockchainCommunity(Community, PeerObserver):
     community_id = b"myblockchain-test-01"
 
     def __init__(self, settings: CommunitySettings):
+        print(f"[{self.__class__.__name__}] Handler registration (check): {hasattr(self, 'get_my_message_handlers')}")
         super().__init__(settings)
         self.my_key = default_eccrypto.key_from_private_bin(self.my_peer.key.key_to_bin())
         self.known_peers = set()
@@ -66,6 +66,10 @@ class BlockchainCommunity(Community, PeerObserver):
         self.role = self.load_node_role()
         self.validators = self.load_validators()
         self.blockchain = Blockchain(max_block_size=5, validators=self.validators)
+
+    def get_my_message_handlers(self):
+        print(f"[{self.node_id}] 🔧 Handler registered")
+        return {b"\x01": self.on_transaction_packet}
 
     def load_node_role(self):
         config_file = "node_config.json"
@@ -121,7 +125,7 @@ class BlockchainCommunity(Community, PeerObserver):
         print(f"🚀 Node started with MID: {self.my_peer.mid.hex()}")
         print(f"📛 Role will be loaded from node_config.json (if available)")
         self.network.add_peer_observer(self)
-        self.add_message_handler(Transaction, self.on_transaction_received)
+        # self.add_message_handler(Transaction, self.on_transaction_received)
         self.add_message_handler(Vote, self.on_vote_received)
         self.add_message_handler(BlockPayload, self.on_block_payload_received)
 
@@ -168,25 +172,26 @@ class BlockchainCommunity(Community, PeerObserver):
     def log_peers(self):
         print(f"[{self.node_id}] Known peers: {len(self.known_peers)} | Connected peers: {len(self.get_peers())}")
 
-    @lazy_wrapper(Transaction)
-    def on_transaction_received(self, peer: Peer, tx: Transaction):
-        message_id = hashlib.sha256(tx.cert_hash).hexdigest()
-        if message_id in self.seen_message_hashes:
-            return
+    # @lazy_wrapper(Transaction)
+    # def on_transaction_received(self, peer: Peer, tx: Transaction):
+    #     message_id = hashlib.sha256(tx.cert_hash).hexdigest()
+    #     if message_id in self.seen_message_hashes:
+    #         return
 
-        self.seen_message_hashes.add(message_id)
-        if not verify_signature(tx.signature, tx.public_key,
-                                tx.sender_mid + tx.receiver_mid + tx.cert_hash):
-            print(f"[{self.node_id}] Invalid TX from {peer.mid.hex()}")
-            return
+    #     self.seen_message_hashes.add(message_id)
+    #     if not verify_signature(tx.signature, tx.public_key,
+    #                             tx.sender_mid + tx.receiver_mid + tx.cert_hash):
+    #         print(f"[{self.node_id}] Invalid TX from {peer.mid.hex()}")
+    #         return
 
-        self.blockchain.add_pending_transaction(tx)
-        print(f"[{self.node_id}] TX received from {tx.sender_mid.hex()[:6]} to {tx.receiver_mid.hex()[:6]} pending: {len(self.blockchain.pending_transactions)}")
-        self.broadcast(tx)
+    #     self.blockchain.add_pending_transaction(tx)
+    #     print(f"[{self.node_id}] TX received from {tx.sender_mid.hex()[:6]} to {tx.receiver_mid.hex()[:6]} pending: {len(self.blockchain.pending_transactions)}")
+    #     self.broadcast(tx)
 
-        if len(self.blockchain.pending_transactions) >= self.blockchain.max_block_size:
-            print(f"[{self.node_id}] Block size reached, proposing block...")
-            self.propose_block()
+    #     if len(self.blockchain.pending_transactions) >= self.blockchain.max_block_size:
+    #         print(f"[{self.node_id}] Block size reached, proposing block...")
+    #         self.propose_block()
+
     @lazy_wrapper(Transaction)
     def on_transaction(self, peer: Peer, payload: Transaction):
         print(f"📩 Transaction from {payload.sender} to {payload.receiver}: {payload.message}")
@@ -276,24 +281,40 @@ class BlockchainCommunity(Community, PeerObserver):
                 print(f"[{self.node_id}] Block finalized: {block_hash_hex[:8]}")
                 self.broadcast_finalized_block(block)
 
-    def create_and_broadcast_transaction(self, recipient_id, cert_hash, issuer_id = None, db_id = None):
-        cert_hash_bytes = bytes.fromhex(cert_hash)
-        sender_mid = self.my_peer.mid
-        receiver_mid = b"api_receiver"
-        message = sender_mid + receiver_mid + cert_hash_bytes
-        signature = default_eccrypto.create_signature(self.my_key, message)
-
-        tx = Transaction(
-            sender_mid=sender_mid,
-            receiver_mid=receiver_mid,
-            cert_hash=cert_hash_bytes,
-            signature=signature,
-            public_key=default_eccrypto.key_to_bin(self.my_key.pub()),
-            db_id=db_id.encode() if isinstance(db_id, str) else db_id
-        )
-
-        self.broadcast(tx)
+    def create_and_broadcast_transaction(self, recipient_id, issuer_id, cert_hash, db_id):
+        sender_mid = self.my_peer.mid.hex()
+        receiver_mid = recipient_id
+        msg = sender_mid + receiver_mid + cert_hash + db_id
+        signature = self.my_key.sign(msg.encode()).hex()
+        public_key = self.my_key.public_key.key_to_bin().hex()
+        tx = Transaction(sender_mid, receiver_mid, cert_hash, signature, public_key, db_id)
+        tx_json = json.dumps(tx.to_dict()).encode()
+        self.broadcast(b"\x01" + tx_json)
         print(f"[{self.node_id}] Transaction broadcasted: {cert_hash[:8]}")
+
+
+    def on_transaction_packet(self, peer: Peer, data: bytes):
+        print(f"[{self.node_id}] 🧨 PACKET received raw: {data}")
+        try:
+            tx_data = json.loads(data[1:].decode())
+            tx = Transaction.from_dict(tx_data)
+            print(f"[{self.node_id}] 📥 Received TX from {tx.sender_mid[:6]} → {tx.receiver_mid[:6]}")
+            message_id = hashlib.sha256(tx.cert_hash.encode()).hexdigest()
+            if message_id in self.seen_message_hashes:
+                print(f"[{self.node_id}] 🔁 TX already seen: {message_id[:8]}")
+                return
+            self.seen_message_hashes.add(message_id)
+            msg = tx.sender_mid + tx.receiver_mid + tx.cert_hash + tx.db_id
+            if not verify_signature(bytes.fromhex(tx.signature), bytes.fromhex(tx.public_key), msg.encode()):
+                print(f"[{self.node_id}] Invalid TX signature")
+                return
+            self.blockchain.add_pending_transaction(tx)
+            print(f"[{self.node_id}] TX received from {tx.sender_mid[:6]} to {tx.receiver_mid[:6]}")
+            self.broadcast(b"\x01" + data[1:])
+            if len(self.blockchain.pending_transactions) >= self.blockchain.max_block_size:
+                self.propose_block()
+        except Exception as e:
+            print(f"[{self.node_id}] TX decode error: {e}")
 
 
 async def start_node(node_id, developer_mode, web_port=None):
