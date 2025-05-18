@@ -7,7 +7,8 @@ from models.transaction import Transaction
 
 async def simulate_tx():
     community = await start_node(node_id=4, developer_mode=True)
-    await asyncio.sleep(3)  # รอ peer discover
+    await asyncio.sleep(10)  # รอ peer discover
+    print(f"Connected peers: {[p.mid.hex()[:6] for p in community.get_peers()]}")
 
     recipient_id = "stu123"
     issuer_id = "uniABC"
@@ -23,11 +24,14 @@ async def simulate_tx():
 
     # manual gossip แบบ raw
     for peer in community.get_peers():
+        print(f"Found peer: {peer.mid.hex()} @ {peer.address} vs self: {community.my_peer.mid.hex()} @ {community.endpoint.get_address()}")
         if peer != community.my_peer:
             print(f"🚀 Sending to peer {peer.mid.hex()[:6]}")
             community.endpoint.send(peer.address, b"\x01" + tx_json)
 
-    await asyncio.sleep(3)  # ให้ peer มีเวลาประมวลผล
+    print("⏳ Waiting for peers to process the TX...")
+    await asyncio.sleep(20)  # รอ peer ประมวลผลให้ครบ
+    print("✅ TX propagation wait complete.")
     print(f"✅ Simulated TX sent: {cert_hash[:8]}")
 
 if __name__ == "__main__":

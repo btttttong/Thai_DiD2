@@ -53,8 +53,15 @@ def payload_to_block(payload: BlockPayload) -> Block:
 class BlockchainCommunity(Community, PeerObserver):
     community_id = b"myblockchain-test-01"
 
+    def get_my_message_handlers(self):
+        print(f"[{getattr(self, 'node_id', '??')}] 🔧 Handler registered")
+        # return {b"\x01": self.on_transaction_packet}
+        return getattr(self, "custom_message_handlers", {})
+
+
     def __init__(self, settings: CommunitySettings):
         print(f"[{self.__class__.__name__}] Handler registration (check): {hasattr(self, 'get_my_message_handlers')}")
+
         super().__init__(settings)
         self.my_key = default_eccrypto.key_from_private_bin(self.my_peer.key.key_to_bin())
         self.known_peers = set()
@@ -66,10 +73,6 @@ class BlockchainCommunity(Community, PeerObserver):
         self.role = self.load_node_role()
         self.validators = self.load_validators()
         self.blockchain = Blockchain(max_block_size=5, validators=self.validators)
-
-    def get_my_message_handlers(self):
-        print(f"[{self.node_id}] 🔧 Handler registered")
-        return {b"\x01": self.on_transaction_packet}
 
     def load_node_role(self):
         config_file = "node_config.json"
@@ -97,6 +100,7 @@ class BlockchainCommunity(Community, PeerObserver):
     def broadcast(self, payload, exclude_peer=None):
         for peer in self.get_peers():
             if peer != exclude_peer and peer != self.my_peer:
+                print(f"[{self.node_id}] 🚀 Gossip to {peer.mid.hex()[:6]}")
                 self.ez_send(peer, payload)
 
     def on_peer_added(self, peer: Peer):
@@ -120,17 +124,26 @@ class BlockchainCommunity(Community, PeerObserver):
             db_id=db_id
         )
 
+    async def heartbeat(self):
+        while True:
+            print(f"[{self.node_id}] ❤️ Alive, peers: {len(self.get_peers())}")
+            await asyncio.sleep(5)
+
     def started(self):
         self.node_id = self.my_peer.mid.hex()[:6]
         print(f"🚀 Node started with MID: {self.my_peer.mid.hex()}")
         print(f"📛 Role will be loaded from node_config.json (if available)")
         self.network.add_peer_observer(self)
+        self.custom_message_handlers = {b"\x01": self.on_transaction_packet}
         # self.add_message_handler(Transaction, self.on_transaction_received)
         self.add_message_handler(Vote, self.on_vote_received)
         self.add_message_handler(BlockPayload, self.on_block_payload_received)
+        # self.add_message_handler(b"\x01", self.on_transaction_packet)
 
         self.role = self.load_node_role()
         self.validators = self.load_validators()
+        self.register_task("heartbeat", self.heartbeat, interval=9999, delay=0)
+        print(f"[{self.node_id}] Connected peers: {[p.mid.hex()[:6] for p in self.get_peers()]}")
 
         # if self.role == "sender":
         #     self.register_task("dummy_broadcast", self.send_dummy_payloads, interval=9999, delay=5)  # runs once after 5s
@@ -294,6 +307,7 @@ class BlockchainCommunity(Community, PeerObserver):
 
 
     def on_transaction_packet(self, peer: Peer, data: bytes):
+        print(f"[{self.node_id}] 🧨 on_transaction_packet called")
         print(f"[{self.node_id}] 🧨 PACKET received raw: {data}")
         try:
             tx_data = json.loads(data[1:].decode())
@@ -310,7 +324,7 @@ class BlockchainCommunity(Community, PeerObserver):
                 return
             self.blockchain.add_pending_transaction(tx)
             print(f"[{self.node_id}] TX received from {tx.sender_mid[:6]} to {tx.receiver_mid[:6]}")
-            self.broadcast(b"\x01" + data[1:])
+            self.broadcast(b"\x01" + data[1:], exclude_peer=peer)
             if len(self.blockchain.pending_transactions) >= self.blockchain.max_block_size:
                 self.propose_block()
         except Exception as e:

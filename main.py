@@ -10,6 +10,7 @@ def boot_node(node_id):
     async def runner():
         community = await start_node(node_id=node_id, developer_mode=True)
         communities.append(community)
+        print(f"🟢 Node {node_id} fully started")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
